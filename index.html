@@ -34,8 +34,8 @@
 </head>
 <body>
     <div class="header">
-        <div class="header-title">札幌市周辺 現在の交通情報</div>
-        <div class="header-time">2026/01/26 16:16</div>
+        <div class="header-title">運行情報ボード</div>
+        <div class="header-time">2026/01/26 16:31</div>
     </div>
     <div id="admin-panel">
         <h3 style="color:#C0FFC0; margin-bottom:15px;">備考手動修正モード</h3>
@@ -178,9 +178,37 @@
     </div>
     <script>
         const DB_KEY = 'sap_traffic_v11';
+        const LAST_RESET_KEY = 'sap_traffic_last_reset';
+
+        // 毎日午前3時にリセットする関数
+        function checkDailyReset() {
+            const now = new Date();
+            // 今日の午前3時のタイムスタンプを作成
+            let resetTime = new Date();
+            resetTime.setHours(3, 0, 0, 0);
+
+            // 現在時刻が3時を過ぎているかどうか
+            // もし3時前なら、リセット基準は「昨日の3時」になる
+            if (now < resetTime) {
+                resetTime.setDate(resetTime.getDate() - 1);
+            }
+
+            const lastReset = localStorage.getItem(LAST_RESET_KEY);
+            const resetTimestamp = resetTime.getTime().toString();
+
+            // 最後にリセットした記録がない、または記録がリセット基準時間より古い場合
+            if (!lastReset || lastReset !== resetTimestamp) {
+                localStorage.removeItem(DB_KEY);
+                localStorage.setItem(LAST_RESET_KEY, resetTimestamp);
+                return true; // リセット実行
+            }
+            return false;
+        }
+
         function checkHash() {
             document.getElementById('admin-panel').style.display = (window.location.hash === '#admin') ? 'block' : 'none';
         }
+
         function saveManual() {
             const notes = {};
             document.querySelectorAll('.admin-input').forEach(i => {
@@ -190,14 +218,19 @@
             window.location.hash = '';
             window.location.reload();
         }
+
         window.onload = () => {
+            const hasReset = checkDailyReset();
             const saved = JSON.parse(localStorage.getItem(DB_KEY) || '{}');
             const form = document.getElementById('form-container');
+            
             document.querySelectorAll('.row').forEach(row => {
                 const id = row.id.replace('row-', '');
                 const name = row.querySelector('.line-name').innerText;
                 const detailEl = document.getElementById('text-' + id);
+                
                 form.innerHTML += `<div class="admin-item"><label class="admin-label">${name}</label><input class="admin-input" data-id="${id}" value="${saved[id] || ''}"></div>`;
+                
                 if (saved[id] && saved[id].trim() !== "") {
                     detailEl.innerText = saved[id];
                     detailEl.style.color = "#FFD700";
@@ -205,7 +238,9 @@
                 }
             });
             checkHash();
+            if (hasReset) console.log("Daily reset at 3:00 AM executed.");
         };
+
         window.onhashchange = checkHash;
     </script>
 </body>
