@@ -131,7 +131,7 @@ def generate():
 </head>
 <body>
     <div class="header">
-        <div class="header-title">運行情報ボード</div>
+        <div class="header-title">札幌市周辺 現在の交通情報</div>
         <div class="header-time">{now}</div>
     </div>
     <div id="admin-panel">
@@ -197,5 +197,6 @@ def generate():
 </html>"""
 
     with open("index.html", "w", encoding="utf-8") as f: f.write(html_content)
+
 
 if __name__ == "__main__": generate()
