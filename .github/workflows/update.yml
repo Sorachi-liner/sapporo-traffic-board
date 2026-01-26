@@ -2,7 +2,7 @@ name: Update Traffic Info
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # 15分おきに実行
+    - cron: '*/2 * * * *'  # 2分おきに実行
   workflow_dispatch:       # 手動実行ボタンも作る
 
 jobs:
