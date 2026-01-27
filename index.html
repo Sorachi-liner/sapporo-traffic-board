@@ -34,8 +34,8 @@
 </head>
 <body>
     <div class="header">
-        <div class="header-title">札幌周辺 交通情報のご案内</div>
-        <div class="header-time">2026/01/27 22:24</div>
+        <div class="header-title">運行情報ボード</div>
+        <div class="header-time">2026/01/27 22:27</div>
     </div>
     <div id="admin-panel">
         <h3 style="color:#C0FFC0; margin-bottom:15px;">備考手動修正モード</h3>
@@ -125,10 +125,10 @@
                     <div class="line-bar" style="background:#4040FF;"></div>
                     <div class="line-name">JR北海道バス</div>
                 </div>
-                <div class="symbol-box" style="color:#C0FFC0;">◯</div>
+                <div class="symbol-box" style="color:#FF8C00;">△</div>
                 <div class="info-box">
-                    <div class="status-text" style="color:#C0FFC0;">平常運転</div>
-                    <div class="detail-text" id="text-bus_jr">平常通り運転中</div>
+                    <div class="status-text" style="color:#FF8C00;">一部運休・大幅遅延</div>
+                    <div class="detail-text" id="text-bus_jr">遅れ・運休が出ています</div>
                 </div>
             </div>
             <div class="row" id="row-bus_ch">
@@ -136,10 +136,10 @@
                     <div class="line-bar" style="background:#FF4040;"></div>
                     <div class="line-name">中央バス</div>
                 </div>
-                <div class="symbol-box" style="color:#C0FFC0;">◯</div>
+                <div class="symbol-box" style="color:#FF8C00;">△</div>
                 <div class="info-box">
-                    <div class="status-text" style="color:#C0FFC0;">平常運転</div>
-                    <div class="detail-text" id="text-bus_ch">平常通り運転中</div>
+                    <div class="status-text" style="color:#FF8C00;">一部運休・大幅遅延</div>
+                    <div class="detail-text" id="text-bus_ch">遅れ・運休が出ています</div>
                 </div>
             </div>
             <div class="row" id="row-bus_jo">
@@ -147,10 +147,10 @@
                     <div class="line-bar" style="background:#FF8000;"></div>
                     <div class="line-name">じょうてつ</div>
                 </div>
-                <div class="symbol-box" style="color:#C0FFC0;">◯</div>
+                <div class="symbol-box" style="color:#FF8C00;">△</div>
                 <div class="info-box">
-                    <div class="status-text" style="color:#C0FFC0;">平常運転</div>
-                    <div class="detail-text" id="text-bus_jo">平常通り運転中</div>
+                    <div class="status-text" style="color:#FF8C00;">一部運休・大幅遅延</div>
+                    <div class="detail-text" id="text-bus_jo">遅れ・運休が出ています</div>
                 </div>
             </div></details><details open><summary>高速道路</summary>
             <div class="row" id="row-hw_s">
@@ -179,7 +179,6 @@
     <script>
         const DB_KEY = 'sap_traffic_v11';
         const LAST_RESET_KEY = 'sap_traffic_last_reset';
-
         function checkDailyReset() {
             const now = new Date();
             let resetTime = new Date();
@@ -194,18 +193,15 @@
             }
             return false;
         }
-
         function checkHash() {
             document.getElementById('admin-panel').style.display = (window.location.hash === '#admin') ? 'block' : 'none';
         }
-
         function saveManual() {
             const notes = {};
             document.querySelectorAll('.admin-input').forEach(i => { notes[i.dataset.id] = i.value; });
             localStorage.setItem(DB_KEY, JSON.stringify(notes));
             window.location.hash = ''; window.location.reload();
         }
-
         window.onload = () => {
             checkDailyReset();
             const saved = JSON.parse(localStorage.getItem(DB_KEY) || '{}');
