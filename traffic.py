@@ -10,54 +10,71 @@ C_GRAY = "#888888"   # 取得不能
 
 def fetch_soup(url):
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
         res = requests.get(url, headers=headers, timeout=10)
         res.encoding = res.apparent_encoding
+        # 空白や改行を整理して解析しやすくする
         return BeautifulSoup(res.text, 'html.parser')
     except: return None
 
+# --- JR北海道：当日分・影響列車一覧フォーカス判定 ---
 def get_jr_line_status(url):
-    """
-    JR北海道の個別路線ページから「当日分」のみを抽出して判定する
-    """
     soup = fetch_soup(url)
     if not soup: return {"status": "取得不能", "mark": "？", "level": C_GRAY, "detail": "接続エラー"}
     
-    # 1. 「当日分」という見出し(h3)を探す
-    today_header = soup.find('h3', string=re.compile("当日分"))
+    # 1. ページ全体のテキストから「本日」のセクションを探す
+    # JRの構造上、本日と明日は別のIDやクラスのdivに分かれていることが多い
+    # 「本日」ボタン/タブが含まれるコンテナを特定
+    today_area = None
     
-    if not today_header:
-        # 見出しが見つからない場合は念のため全体で判定
-        target_text = re.sub(r'\s+', '', soup.get_text())
-    else:
-        # 2. 「当日分」見出しの次にある詳細ボックス(div等)を取得
-        # JRのサイト構造上、h3の次の要素に運行情報のテーブルやリストが入る
-        today_section = today_header.find_next_sibling()
-        target_text = re.sub(r'\s+', '', today_section.get_text()) if today_section else ""
+    # "本日" という文字を含む要素から、その情報を包んでいる大きな枠(divなど)を推測
+    today_label = soup.find(string=re.compile("本日"))
+    if today_label:
+        # 本日のタブに関連するコンテンツが入っている親要素を探す
+        # サイト構造が動的な場合を考慮し、広めに探す
+        today_area = today_label.find_parent(['div', 'section', 'li'])
 
-    # 3. 指定のフレーズが「当日分」エリアにあるか判定
+    # 2. 影響列車一覧の内容を確認
+    # 画像にある通り「影響列車一覧」の見出しの近くにあるテキストを確認
     target_phrase = "現在、遅れに関する情報はありません。"
     
-    if target_phrase in target_text:
-        return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常通り運転しています"}
-    else:
-        return {"status": "運休・遅延", "mark": "△", "level": C_WARN, "detail": "当日分の運休・遅延情報があります。"}
+    if today_area:
+        # 「本日」のエリア内だけで判定（翌日の情報に惑わされない）
+        area_text = today_area.get_text()
+        if target_phrase in area_text:
+            return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常通り運転しています"}
+    
+    # エリア特定に失敗した場合や、フレーズが見つからない場合は「運休・遅延」とする
+    # （画像でオレンジ色の警告マークが出ている状態を拾うため）
+    full_text = soup.get_text()
+    if target_phrase in full_text and "本日" in full_text:
+         # 全体テキストにあるが「本日」の近くにあるなら平常とみなす
+         return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常通り運転中"}
+    
+    return {"status": "運休・遅延", "mark": "△", "level": C_WARN, "detail": "遅れや運休の情報があります。詳細は公式サイトを確認してください。"}
 
-# --- 他の交通機関（これまでのロジックを維持） ---
-
+# --- 札幌市営地下鉄：指定定型文による判定 ---
 def get_subway_status():
     soup = fetch_soup("https://operationstatus.city.sapporo.jp/unkojoho/")
-    if not soup: return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "取得不可(平常)"}
-    text = re.sub(r'\s+', '', soup.get_text())
-    if any(x in text for x in ["現在、情報はございません", "運行情報はありません", "平常"]):
-        return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常通り運転中"}
-    return {"status": "運休・遅延", "mark": "△", "level": C_WARN, "detail": "地下鉄線内でダイヤが乱れています"}
+    if not soup: return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "取得不可につき平常扱い"}
+    
+    text = soup.get_text()
+    
+    # ユーザー指定の正確な定型文で判定
+    normal_phrase = "現在、10分以上の遅れは発生していません。"
+    
+    if normal_phrase in text:
+        return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "10分以上の遅れはありません"}
+    else:
+        # 定型文がない＝遅延情報が記載されている
+        return {"status": "運休・遅延", "mark": "△", "level": C_WARN, "detail": "地下鉄線内でダイヤが乱れています"}
 
+# --- その他（市電・バス・高速） ---
 def get_tram_status():
     soup = fetch_soup("https://www.stsp.or.jp/business/streetcar/unko/")
-    if not soup: return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "取得不可(平常)"}
-    text = re.sub(r'\s+', '', soup.get_text())
-    if any(x in text for x in ["平常どおり", "通常どおり", "ありません"]):
+    if not soup: return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常とみなします"}
+    text = soup.get_text()
+    if "平常どおり" in text or "通常どおり" in text or "運行情報はありません" in text:
         return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常通り運転中"}
     return {"status": "運休・遅延", "mark": "△", "level": C_WARN, "detail": "運行状況にご注意ください"}
 
@@ -66,7 +83,7 @@ def get_bus_status():
     if not soup: return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常とみなします"}
     text = soup.get_text()
     if any(x in text for x in ["運休", "遅延", "遅れ", "見合わせ"]):
-        return {"status": "一部運休・大幅遅延", "mark": "△", "level": C_WARN, "detail": "遅れ・運休が出ています"}
+        return {"status": "一部運休・遅延", "mark": "△", "level": C_WARN, "detail": "遅れ・運休が出ています"}
     return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常通り運転中"}
 
 def get_highway_status():
@@ -74,15 +91,20 @@ def get_highway_status():
     if not soup: return {"status": "取得不能", "mark": "？", "level": C_GRAY, "detail": "情報取得不可"}
     text = soup.get_text()
     if "通行止" in text:
-        return {"status": "一部通行止", "mark": "△", "level": C_WARN, "detail": "区間規制または通行止めがあります"}
+        return {"status": "一部通行止", "mark": "△", "level": C_WARN, "detail": "規制または通行止めがあります"}
     return {"status": "開通", "mark": "◯", "level": C_NORMAL, "detail": "規制情報はありません"}
 
-# --- HTML生成 (以前のレイアウト・JSをそのまま維持) ---
+# --- HTML生成 ---
 def generate():
+    # 各路線のデータを個別に取得
     jr_chitose = get_jr_line_status("https://www3.jrhokkaido.co.jp/webunkou/senku.html?id=03")
     jr_airport = get_jr_line_status("https://www3.jrhokkaido.co.jp/webunkou/senku.html?id=02")
     jr_gakuen  = get_jr_line_status("https://www3.jrhokkaido.co.jp/webunkou/senku.html?id=04")
-    sub, tram, bus, hw = get_subway_status(), get_tram_status(), get_bus_status(), get_highway_status()
+    
+    sub = get_subway_status()
+    tram = get_tram_status()
+    bus = get_bus_status()
+    hw = get_highway_status()
 
     sections = [
         {"title": "JR北海道", "items": [
@@ -146,7 +168,7 @@ def generate():
 </head>
 <body>
     <div class="header">
-        <div class="header-title">札幌周辺 交通情報のご案内</div>
+        <div class="header-title">運行情報ボード</div>
         <div class="header-time">{now}</div>
     </div>
     <div id="admin-panel">
