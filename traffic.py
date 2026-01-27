@@ -8,70 +8,89 @@ C_NORMAL = "#C0FFC0" # 平常
 C_WARN = "#FF8C00"   # オレンジ
 C_GRAY = "#888888"   # 取得不能
 
-def fetch_soup(url):
+def fetch_clean_text(url):
+    """
+    URLからHTMLを取得し、改行・空白をすべて削除した「純粋な文字の列」を返す
+    これにより、HTML構造や見た目の空白に左右されずに判定を行う
+    """
     try:
-        # User-Agentを設定してブロックを防ぐ
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
         res = requests.get(url, headers=headers, timeout=10)
         res.encoding = res.apparent_encoding
-        text = re.sub(r'>\s+<', '><', res.text)
-        return BeautifulSoup(text, 'html.parser')
+        soup = BeautifulSoup(res.text, 'html.parser')
+        
+        # 全テキストを取得し、改行・スペース・タブを全て削除して繋げる
+        raw_text = soup.get_text()
+        clean_text = re.sub(r'\s+', '', raw_text) 
+        return clean_text
     except: return None
 
 # --- 各路線の個別判定ロジック ---
 
 def get_jr_line_status(url):
-    soup = fetch_soup(url)
-    if not soup: return {"status": "取得不能", "mark": "？", "level": C_GRAY, "detail": "接続エラー"}
-    text = soup.get_text()
+    # 空白除去済みのテキストを取得
+    text = fetch_clean_text(url)
     
-    # 指定の平常時フレーズをチェック
-    if "現在、遅れに関する情報はありません。" in text:
+    if text is None:
+        return {"status": "取得不能", "mark": "？", "level": C_GRAY, "detail": "接続エラー"}
+    
+    # 文言の空白も除去した状態でマッチング（「現在、遅れ...」と繋がっているか確認）
+    # ユーザー指摘の「影響列車一覧」セクションに表示される定型文を完全一致で探す
+    target_phrase = "現在、遅れに関する情報はありません。"
+    
+    if target_phrase in text:
         return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常通り運転しています"}
     else:
-        # 何らかの情報がある場合は「運休・遅延（△）」
+        # 定型文がない＝リストが表示されている＝遅延あり
         return {"status": "運休・遅延", "mark": "△", "level": C_WARN, "detail": "遅れや運休の情報があります。詳細は公式サイトを確認してください。"}
 
 def get_subway_status():
-    soup = fetch_soup("https://operationstatus.city.sapporo.jp/unkojoho/")
-    if not soup: return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "取得不能につき平常とみなします"}
-    text = soup.get_text()
-    if any(x in text for x in ["平常", "通常", "運行情報はありません", "現在、情報はございません"]):
+    text = fetch_clean_text("https://operationstatus.city.sapporo.jp/unkojoho/")
+    if text is None: return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "取得不能(平常扱い)"}
+    
+    # 札幌市営地下鉄の平常時キーワード（空白なし）
+    if "現在、情報はございません" in text or "運行情報はありません" in text:
         return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常通り運転中"}
+        
     if any(x in text for x in ["ダイヤ乱れ", "遅延", "見合わせ", "運休"]):
         return {"status": "運休・遅延", "mark": "△", "level": C_WARN, "detail": "地下鉄線内でダイヤが乱れています"}
+        
     return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常通り運転中"}
 
 def get_tram_status():
-    soup = fetch_soup("https://www.stsp.or.jp/business/streetcar/unko/")
-    if not soup: return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常とみなします"}
-    text = soup.get_text()
-    # 市電特有の平常フレーズを優先
-    if "平常どおり運行しております" in text or "通常どおり" in text:
+    text = fetch_clean_text("https://www.stsp.or.jp/business/streetcar/unko/")
+    if text is None: return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "取得不能(平常扱い)"}
+    
+    # 札幌市電の判定（空白なし）
+    # 「現在、運行情報はありません。」等のバリエーションに対応
+    if "運行情報はありません" in text or "平常どおり" in text or "通常どおり" in text:
         return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常通り運転中"}
+        
     if any(x in text for x in ["運休", "遅延", "遅れ", "見合わせ"]):
         return {"status": "運休・遅延", "mark": "△", "level": C_WARN, "detail": "運行状況にご注意ください"}
+        
+    # デフォルトは平常
     return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常通り運転中"}
 
 def get_bus_status():
-    soup = fetch_soup("https://www.chuo-bus.co.jp/")
-    if not soup: return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常とみなします"}
-    text = soup.get_text()
+    text = fetch_clean_text("https://www.chuo-bus.co.jp/")
+    if text is None: return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常とみなします"}
+    
     if any(x in text for x in ["運休", "遅延", "遅れ", "見合わせ"]):
         return {"status": "一部運休・大幅遅延", "mark": "△", "level": C_WARN, "detail": "遅れ・運休が出ています"}
     return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常通り運転中"}
 
 def get_highway_status():
-    soup = fetch_soup("https://roadway.yahoo.co.jp/traffic/area/1/highway")
-    if not soup: return {"status": "取得不能", "mark": "？", "level": C_GRAY, "detail": "情報取得不可"}
-    text = soup.get_text()
+    text = fetch_clean_text("https://roadway.yahoo.co.jp/traffic/area/1/highway")
+    if text is None: return {"status": "取得不能", "mark": "？", "level": C_GRAY, "detail": "情報取得不可"}
+    
     if "通行止" in text:
         return {"status": "一部通行止", "mark": "△", "level": C_WARN, "detail": "区間規制または通行止めがあります"}
     return {"status": "開通", "mark": "◯", "level": C_NORMAL, "detail": "規制情報はありません"}
 
 # --- HTML生成 ---
 def generate():
-    # JRは路線ごとに個別のURLから取得
+    # JR URL設定
     jr_chitose = get_jr_line_status("https://www3.jrhokkaido.co.jp/webunkou/senku.html?id=03")
     jr_airport = get_jr_line_status("https://www3.jrhokkaido.co.jp/webunkou/senku.html?id=02")
     jr_gakuen  = get_jr_line_status("https://www3.jrhokkaido.co.jp/webunkou/senku.html?id=04")
@@ -101,7 +120,7 @@ def generate():
         ]}
     ]
 
-    # 日本時間 (JST)
+    # JST設定
     now_obj = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
     now = now_obj.strftime("%Y/%m/%d %H:%M")
 
@@ -141,7 +160,7 @@ def generate():
 </head>
 <body>
     <div class="header">
-        <div class="header-title">札幌周辺 交通情報のご案内</div>
+        <div class="header-title">運行情報ボード</div>
         <div class="header-time">{now}</div>
     </div>
     <div id="admin-panel">
@@ -174,7 +193,6 @@ def generate():
     <script>
         const DB_KEY = 'sap_traffic_v11';
         const LAST_RESET_KEY = 'sap_traffic_last_reset';
-
         function checkDailyReset() {
             const now = new Date();
             let resetTime = new Date();
@@ -189,18 +207,15 @@ def generate():
             }
             return false;
         }
-
         function checkHash() {
             document.getElementById('admin-panel').style.display = (window.location.hash === '#admin') ? 'block' : 'none';
         }
-
         function saveManual() {
             const notes = {};
             document.querySelectorAll('.admin-input').forEach(i => { notes[i.dataset.id] = i.value; });
             localStorage.setItem(DB_KEY, JSON.stringify(notes));
             window.location.hash = ''; window.location.reload();
         }
-
         window.onload = () => {
             checkDailyReset();
             const saved = JSON.parse(localStorage.getItem(DB_KEY) || '{}');
