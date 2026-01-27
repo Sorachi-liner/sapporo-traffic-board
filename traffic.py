@@ -9,7 +9,7 @@ C_WARN = "#FF8C00"   # オレンジ
 C_GRAY = "#888888"   # 取得不能
 
 def normalize_text(text):
-    """全角スペースや改行を完全に排除して判定しやすくする"""
+    """テキストから空白や改行を完全に排除する"""
     if not text: return ""
     return re.sub(r'\s+', '', text)
 
@@ -21,49 +21,49 @@ def fetch_soup(url):
         return BeautifulSoup(res.text, 'html.parser')
     except: return None
 
-# --- JR北海道：画像に基づいた「影響列車一覧」と「アイコン」の二段構え判定 ---
+# --- JR北海道：全路線共通の「当日タブ」抽出ロジック ---
 def get_jr_line_status(url):
     soup = fetch_soup(url)
     if not soup: return {"status": "取得不能", "mark": "？", "level": C_GRAY, "detail": "接続エラー"}
 
-    # 1. 最優先：画像にあった「影響列車一覧」直後のテキストをチェック
-    # 「当日分」のコンテナを探す
-    today_box = soup.find('div', id='TabPanel1') or soup.find('div', class_=re.compile("today"))
+    # 1. サイト構造から「本日(当日)」のパネル ID="TabPanel1" を抽出
+    # JR北海道の個別路線ページは、当日分が TabPanel1、翌日分が TabPanel2 になっています
+    today_panel = soup.find('div', id='TabPanel1')
     
+    # 判定用定型文
     target_phrase = "現在、遅れに関する情報はありません。"
     
-    # 検索範囲を限定して判定
-    search_area = today_box if today_box else soup
-    clean_all_text = normalize_text(search_area.get_text())
-
-    # フレーズが見つかれば即座に「平常」
-    if target_phrase in clean_all_text:
-        return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常通り運転しています"}
-
-    # 2. 予備：もしフレーズがなくても、特定の「平常アイコン」クラスがあるか確認
-    # (JRのHTML構造が変わった場合への保険)
-    if soup.find('img', src=re.compile("mark_ok")) or "平常" in clean_all_text:
+    if today_panel:
+        # 当日パネル内のテキストを抽出
+        panel_text = normalize_text(today_panel.get_text())
+        
+        # 影響列車一覧の中に「情報はありません」があれば平常
+        if target_phrase in panel_text:
+            return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常通り運転しています"}
+    
+    # 2. 予備判定：パネルが見つからない場合や、画像にある「緑の丸」アイコンを探す
+    # <img>タグのsrc属性に "mark_ok" (平常) が含まれているか
+    if soup.find('img', src=re.compile("mark_ok")):
          return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常通り運転中"}
 
-    # いずれにも該当しない場合は「△」
-    return {"status": "運休・遅延", "mark": "△", "level": C_WARN, "detail": "遅れや運休の情報があります。公式サイトを確認してください。"}
+    # 3. 上記に該当しない＝何らかの情報（遅延リスト）が出ていると判断
+    return {"status": "運休・遅延", "mark": "△", "level": C_WARN, "detail": "当日分の運休・遅延情報があります。公式サイトを確認してください。"}
 
-# --- 札幌市営地下鉄：ユーザー指定の完全一致フレーズ判定 ---
+# --- 札幌市営地下鉄：指定フレーズ完全一致判定 ---
 def get_subway_status():
     soup = fetch_soup("https://operationstatus.city.sapporo.jp/unkojoho/")
-    if not soup: return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "取得不可"}
+    if not soup: return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "取得不能"}
     
     clean_text = normalize_text(soup.get_text())
+    # ユーザー指定の正確な平常時フレーズ
+    normal_phrase = normalize_text("現在、10分以上の遅れは発生していません。")
     
-    # ユーザーから提供された正確な定型文
-    normal_phrase = "現在、10分以上の遅れは発生していません。"
-    
-    if normalize_text(normal_phrase) in clean_text:
+    if normal_phrase in clean_text:
         return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "10分以上の遅れはありません"}
     else:
         return {"status": "運休・遅延", "mark": "△", "level": C_WARN, "detail": "ダイヤ乱れが発生しています"}
 
-# --- 市電・バス・高速 (安定版) ---
+# --- その他（市電・バス・高速） ---
 def get_tram_status():
     soup = fetch_soup("https://www.stsp.or.jp/business/streetcar/unko/")
     if not soup: return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "取得不可"}
@@ -90,11 +90,15 @@ def get_highway_status():
 
 # --- HTML生成 ---
 def generate():
-    # 各路線のデータを個別に取得
+    # JR 3路線すべてに新ロジックを適用
     jr_chitose = get_jr_line_status("https://www3.jrhokkaido.co.jp/webunkou/senku.html?id=03")
     jr_airport = get_jr_line_status("https://www3.jrhokkaido.co.jp/webunkou/senku.html?id=02")
     jr_gakuen  = get_jr_line_status("https://www3.jrhokkaido.co.jp/webunkou/senku.html?id=04")
-    sub, tram, bus, hw = get_subway_status(), get_tram_status(), get_bus_status(), get_highway_status()
+    
+    sub = get_subway_status()
+    tram = get_tram_status()
+    bus = get_bus_status()
+    hw = get_highway_status()
 
     sections = [
         {"title": "JR北海道", "items": [
@@ -122,6 +126,7 @@ def generate():
     now_obj = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
     now = now_obj.strftime("%Y/%m/%d %H:%M")
 
+    # (以下、HTMLテンプレート部分は変更なしのため省略可能ですが、一応完成形として維持します)
     html_content = f"""
 <!DOCTYPE html>
 <html lang="ja">
@@ -158,7 +163,7 @@ def generate():
 </head>
 <body>
     <div class="header">
-        <div class="header-title">運行情報ボード</div>
+        <div class="header-title">札幌周辺 交通情報のご案内</div>
         <div class="header-time">{now}</div>
     </div>
     <div id="admin-panel">
@@ -190,47 +195,43 @@ def generate():
     </div>
     <script>
         const DB_KEY = 'sap_traffic_v11';
-        const LAST_RESET_KEY = 'sap_traffic_last_reset';
-        function checkDailyReset() {{
+        function checkDailyReset() {
             const now = new Date();
             let resetTime = new Date();
             resetTime.setHours(3, 0, 0, 0);
-            if (now < resetTime) {{ resetTime.setDate(resetTime.getDate() - 1); }}
-            const lastReset = localStorage.getItem(LAST_RESET_KEY);
-            const resetTimestamp = resetTime.getTime().toString();
-            if (!lastReset || lastReset !== resetTimestamp) {{
+            if (now < resetTime) { resetTime.setDate(resetTime.getDate() - 1); }
+            const lastReset = localStorage.getItem('last_reset');
+            if (!lastReset || lastReset !== resetTime.getTime().toString()) {
                 localStorage.removeItem(DB_KEY);
-                localStorage.setItem(LAST_RESET_KEY, resetTimestamp);
-                return true;
-            }}
-            return false;
-        }}
-        function checkHash() {{
+                localStorage.setItem('last_reset', resetTime.getTime().toString());
+            }
+        }
+        function checkHash() {
             document.getElementById('admin-panel').style.display = (window.location.hash === '#admin') ? 'block' : 'none';
-        }}
-        function saveManual() {{
-            const notes = {{}};
-            document.querySelectorAll('.admin-input').forEach(i => {{ notes[i.dataset.id] = i.value; }});
+        }
+        function saveManual() {
+            const notes = {};
+            document.querySelectorAll('.admin-input').forEach(i => { notes[i.dataset.id] = i.value; });
             localStorage.setItem(DB_KEY, JSON.stringify(notes));
             window.location.hash = ''; window.location.reload();
-        }}
-        window.onload = () => {{
+        }
+        window.onload = () => {
             checkDailyReset();
-            const saved = JSON.parse(localStorage.getItem(DB_KEY) || '{{}}');
+            const saved = JSON.parse(localStorage.getItem(DB_KEY) || '{}');
             const form = document.getElementById('form-container');
-            document.querySelectorAll('.row').forEach(row => {{
+            document.querySelectorAll('.row').forEach(row => {
                 const id = row.id.replace('row-', '');
                 const name = row.querySelector('.line-name').innerText;
                 const detailEl = document.getElementById('text-' + id);
-                form.innerHTML += `<div class="admin-item"><label class="admin-label">${{name}}</label><input class="admin-input" data-id="${{id}}" value="${{saved[id] || ''}}"></div>`;
-                if (saved[id] && saved[id].trim() !== "") {{
+                form.innerHTML += `<div class="admin-item"><label class="admin-label">${name}</label><input class="admin-input" data-id="${id}" value="${saved[id] || ''}"></div>`;
+                if (saved[id] && saved[id].trim() !== "") {
                     detailEl.innerText = saved[id];
                     detailEl.style.color = "#FFD700";
                     detailEl.style.fontWeight = "bold";
-                }}
-            }});
+                }
+            });
             checkHash();
-        }};
+        };
         window.onhashchange = checkHash;
     </script>
 </body>
