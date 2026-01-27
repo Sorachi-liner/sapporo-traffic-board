@@ -3,29 +3,34 @@ from bs4 import BeautifulSoup
 import datetime
 import re
 
-# --- カラー設定 ---
-C_NORMAL = "#C0FFC0" 
-C_WARN = "#FF8C00"   
-C_STOP = "#FF3333"   
-C_GRAY = "#888888"   
+# --- カラー・記号設定 ---
+C_NORMAL = "#C0FFC0" # 平常
+C_WARN = "#FF8C00"   # オレンジ
+C_GRAY = "#888888"   # 取得不能
 
 def fetch_soup(url):
     try:
-        res = requests.get(url, timeout=10)
+        # User-Agentを設定してブロックを防ぐ
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"}
+        res = requests.get(url, headers=headers, timeout=10)
         res.encoding = res.apparent_encoding
         text = re.sub(r'>\s+<', '><', res.text)
         return BeautifulSoup(text, 'html.parser')
     except: return None
 
-# --- 運行情報取得ロジック ---
+# --- 各路線の個別判定ロジック ---
 
-def get_jr_status():
-    soup = fetch_soup("https://www3.jrhokkaido.co.jp/webunkou/area_spo.html")
-    if not soup: return {"status": "取得不能", "mark": "？", "level": C_GRAY, "detail": "サイトに接続できません"}
+def get_jr_line_status(url):
+    soup = fetch_soup(url)
+    if not soup: return {"status": "取得不能", "mark": "？", "level": C_GRAY, "detail": "接続エラー"}
     text = soup.get_text()
-    if "平常通り" in text or "運行情報はありません" in text:
+    
+    # 指定の平常時フレーズをチェック
+    if "現在、遅れに関する情報はありません。" in text:
         return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常通り運転しています"}
-    return {"status": "運休・遅延", "mark": "△", "level": C_WARN, "detail": "列車に運休や遅れが発生しています"}
+    else:
+        # 何らかの情報がある場合は「運休・遅延（△）」
+        return {"status": "運休・遅延", "mark": "△", "level": C_WARN, "detail": "遅れや運休の情報があります。詳細は公式サイトを確認してください。"}
 
 def get_subway_status():
     soup = fetch_soup("https://operationstatus.city.sapporo.jp/unkojoho/")
@@ -41,9 +46,12 @@ def get_tram_status():
     soup = fetch_soup("https://www.stsp.or.jp/business/streetcar/unko/")
     if not soup: return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常とみなします"}
     text = soup.get_text()
-    if any(x in text for x in ["平常", "通常", "ありません", "ございません"]):
+    # 市電特有の平常フレーズを優先
+    if "平常どおり運行しております" in text or "通常どおり" in text:
         return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常通り運転中"}
-    return {"status": "運休・遅延", "mark": "△", "level": C_WARN, "detail": "運行状況にご注意ください"}
+    if any(x in text for x in ["運休", "遅延", "遅れ", "見合わせ"]):
+        return {"status": "運休・遅延", "mark": "△", "level": C_WARN, "detail": "運行状況にご注意ください"}
+    return {"status": "平常運転", "mark": "◯", "level": C_NORMAL, "detail": "平常通り運転中"}
 
 def get_bus_status():
     soup = fetch_soup("https://www.chuo-bus.co.jp/")
@@ -63,13 +71,18 @@ def get_highway_status():
 
 # --- HTML生成 ---
 def generate():
-    jr, sub, tram, bus, hw = get_jr_status(), get_subway_status(), get_tram_status(), get_bus_status(), get_highway_status()
+    # JRは路線ごとに個別のURLから取得
+    jr_chitose = get_jr_line_status("https://www3.jrhokkaido.co.jp/webunkou/senku.html?id=03")
+    jr_airport = get_jr_line_status("https://www3.jrhokkaido.co.jp/webunkou/senku.html?id=02")
+    jr_gakuen  = get_jr_line_status("https://www3.jrhokkaido.co.jp/webunkou/senku.html?id=04")
+    
+    sub, tram, bus, hw = get_subway_status(), get_tram_status(), get_bus_status(), get_highway_status()
 
     sections = [
         {"title": "JR北海道", "items": [
-            {"id": "jr_h", "name": "函館・千歳線", "d": jr, "color": "#44AF35"},
-            {"id": "jr_a", "name": "エアポート", "d": jr, "color": "#44AF35"},
-            {"id": "jr_g", "name": "学園都市線", "d": jr, "color": "#44AF35"}
+            {"id": "jr_h", "name": "函館・千歳線", "d": jr_chitose, "color": "#44AF35"},
+            {"id": "jr_a", "name": "エアポート", "d": jr_airport, "color": "#44AF35"},
+            {"id": "jr_g", "name": "学園都市線", "d": jr_gakuen, "color": "#44AF35"}
         ]},
         {"title": "札幌市営", "items": [
             {"id": "sub_n", "name": "南北線", "d": sub, "color": "#008000"},
@@ -88,7 +101,7 @@ def generate():
         ]}
     ]
 
-    # 日本時間での時刻取得
+    # 日本時間 (JST)
     now_obj = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
     now = now_obj.strftime("%Y/%m/%d %H:%M")
 
@@ -128,7 +141,7 @@ def generate():
 </head>
 <body>
     <div class="header">
-        <div class="header-title">札幌市周辺 現在の道路情報</div>
+        <div class="header-title">札幌周辺 交通情報のご案内</div>
         <div class="header-time">{now}</div>
     </div>
     <div id="admin-panel">
@@ -162,27 +175,17 @@ def generate():
         const DB_KEY = 'sap_traffic_v11';
         const LAST_RESET_KEY = 'sap_traffic_last_reset';
 
-        // 毎日午前3時にリセットする関数
         function checkDailyReset() {
             const now = new Date();
-            // 今日の午前3時のタイムスタンプを作成
             let resetTime = new Date();
             resetTime.setHours(3, 0, 0, 0);
-
-            // 現在時刻が3時を過ぎているかどうか
-            // もし3時前なら、リセット基準は「昨日の3時」になる
-            if (now < resetTime) {
-                resetTime.setDate(resetTime.getDate() - 1);
-            }
-
+            if (now < resetTime) { resetTime.setDate(resetTime.getDate() - 1); }
             const lastReset = localStorage.getItem(LAST_RESET_KEY);
             const resetTimestamp = resetTime.getTime().toString();
-
-            // 最後にリセットした記録がない、または記録がリセット基準時間より古い場合
             if (!lastReset || lastReset !== resetTimestamp) {
                 localStorage.removeItem(DB_KEY);
                 localStorage.setItem(LAST_RESET_KEY, resetTimestamp);
-                return true; // リセット実行
+                return true;
             }
             return false;
         }
@@ -193,26 +196,20 @@ def generate():
 
         function saveManual() {
             const notes = {};
-            document.querySelectorAll('.admin-input').forEach(i => {
-                notes[i.dataset.id] = i.value;
-            });
+            document.querySelectorAll('.admin-input').forEach(i => { notes[i.dataset.id] = i.value; });
             localStorage.setItem(DB_KEY, JSON.stringify(notes));
-            window.location.hash = '';
-            window.location.reload();
+            window.location.hash = ''; window.location.reload();
         }
 
         window.onload = () => {
-            const hasReset = checkDailyReset();
+            checkDailyReset();
             const saved = JSON.parse(localStorage.getItem(DB_KEY) || '{}');
             const form = document.getElementById('form-container');
-            
             document.querySelectorAll('.row').forEach(row => {
                 const id = row.id.replace('row-', '');
                 const name = row.querySelector('.line-name').innerText;
                 const detailEl = document.getElementById('text-' + id);
-                
                 form.innerHTML += `<div class="admin-item"><label class="admin-label">${name}</label><input class="admin-input" data-id="${id}" value="${saved[id] || ''}"></div>`;
-                
                 if (saved[id] && saved[id].trim() !== "") {
                     detailEl.innerText = saved[id];
                     detailEl.style.color = "#FFD700";
@@ -220,9 +217,7 @@ def generate():
                 }
             });
             checkHash();
-            if (hasReset) console.log("Daily reset at 3:00 AM executed.");
         };
-
         window.onhashchange = checkHash;
     </script>
 </body>
@@ -231,4 +226,3 @@ def generate():
     with open("index.html", "w", encoding="utf-8") as f: f.write(html_content)
 
 if __name__ == "__main__": generate()
-
