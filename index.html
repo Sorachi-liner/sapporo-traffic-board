@@ -34,8 +34,8 @@
 </head>
 <body>
     <div class="header">
-        <div class="header-title">札幌周辺 交通情報のご案内</div>
-        <div class="header-time">2026/01/27 22:38</div>
+        <div class="header-title">運行情報ボード</div>
+        <div class="header-time">2026/01/27 22:43</div>
     </div>
     <div id="admin-panel">
         <h3 style="color:#C0FFC0; margin-bottom:15px;">備考手動修正モード</h3>
@@ -51,7 +51,7 @@
                 <div class="symbol-box" style="color:#FF8C00;">△</div>
                 <div class="info-box">
                     <div class="status-text" style="color:#FF8C00;">運休・遅延</div>
-                    <div class="detail-text" id="text-jr_h">遅れや運休の情報があります。詳細は公式サイトを確認してください。</div>
+                    <div class="detail-text" id="text-jr_h">遅れや運休の情報があります。公式サイトを確認してください。</div>
                 </div>
             </div>
             <div class="row" id="row-jr_a">
@@ -62,7 +62,7 @@
                 <div class="symbol-box" style="color:#FF8C00;">△</div>
                 <div class="info-box">
                     <div class="status-text" style="color:#FF8C00;">運休・遅延</div>
-                    <div class="detail-text" id="text-jr_a">遅れや運休の情報があります。詳細は公式サイトを確認してください。</div>
+                    <div class="detail-text" id="text-jr_a">遅れや運休の情報があります。公式サイトを確認してください。</div>
                 </div>
             </div>
             <div class="row" id="row-jr_g">
@@ -73,7 +73,7 @@
                 <div class="symbol-box" style="color:#FF8C00;">△</div>
                 <div class="info-box">
                     <div class="status-text" style="color:#FF8C00;">運休・遅延</div>
-                    <div class="detail-text" id="text-jr_g">遅れや運休の情報があります。詳細は公式サイトを確認してください。</div>
+                    <div class="detail-text" id="text-jr_g">遅れや運休の情報があります。公式サイトを確認してください。</div>
                 </div>
             </div></details><details open><summary>札幌市営</summary>
             <div class="row" id="row-sub_n">
@@ -179,46 +179,46 @@
     <script>
         const DB_KEY = 'sap_traffic_v11';
         const LAST_RESET_KEY = 'sap_traffic_last_reset';
-        function checkDailyReset() {
+        function checkDailyReset() {{
             const now = new Date();
             let resetTime = new Date();
             resetTime.setHours(3, 0, 0, 0);
-            if (now < resetTime) { resetTime.setDate(resetTime.getDate() - 1); }
+            if (now < resetTime) {{ resetTime.setDate(resetTime.getDate() - 1); }}
             const lastReset = localStorage.getItem(LAST_RESET_KEY);
             const resetTimestamp = resetTime.getTime().toString();
-            if (!lastReset || lastReset !== resetTimestamp) {
+            if (!lastReset || lastReset !== resetTimestamp) {{
                 localStorage.removeItem(DB_KEY);
                 localStorage.setItem(LAST_RESET_KEY, resetTimestamp);
                 return true;
-            }
+            }}
             return false;
-        }
-        function checkHash() {
+        }}
+        function checkHash() {{
             document.getElementById('admin-panel').style.display = (window.location.hash === '#admin') ? 'block' : 'none';
-        }
-        function saveManual() {
-            const notes = {};
-            document.querySelectorAll('.admin-input').forEach(i => { notes[i.dataset.id] = i.value; });
+        }}
+        function saveManual() {{
+            const notes = {{}};
+            document.querySelectorAll('.admin-input').forEach(i => {{ notes[i.dataset.id] = i.value; }});
             localStorage.setItem(DB_KEY, JSON.stringify(notes));
             window.location.hash = ''; window.location.reload();
-        }
-        window.onload = () => {
+        }}
+        window.onload = () => {{
             checkDailyReset();
-            const saved = JSON.parse(localStorage.getItem(DB_KEY) || '{}');
+            const saved = JSON.parse(localStorage.getItem(DB_KEY) || '{{}}');
             const form = document.getElementById('form-container');
-            document.querySelectorAll('.row').forEach(row => {
+            document.querySelectorAll('.row').forEach(row => {{
                 const id = row.id.replace('row-', '');
                 const name = row.querySelector('.line-name').innerText;
                 const detailEl = document.getElementById('text-' + id);
-                form.innerHTML += `<div class="admin-item"><label class="admin-label">${name}</label><input class="admin-input" data-id="${id}" value="${saved[id] || ''}"></div>`;
-                if (saved[id] && saved[id].trim() !== "") {
+                form.innerHTML += `<div class="admin-item"><label class="admin-label">${{name}}</label><input class="admin-input" data-id="${{id}}" value="${{saved[id] || ''}}"></div>`;
+                if (saved[id] && saved[id].trim() !== "") {{
                     detailEl.innerText = saved[id];
                     detailEl.style.color = "#FFD700";
                     detailEl.style.fontWeight = "bold";
-                }
-            });
+                }}
+            }});
             checkHash();
-        };
+        }};
         window.onhashchange = checkHash;
     </script>
 </body>
